@@ -15,8 +15,6 @@
         setLogLevel('silent'); // Reducir ruido en consola
 
         // --- 1. CONFIGURACIÓN FIREBASE ---
-        // Estas credenciales son públicas por naturaleza en apps web frontend.
-        // La seguridad real viene de las Reglas de Firestore (en la consola de Firebase).
         const firebaseConfig = {
             apiKey: "AIzaSyDiv3Dal5XTN9-QE8aplHtPBa5BfhTEg3c",
             authDomain: "notebook-de-promps.firebaseapp.com",
@@ -25,8 +23,6 @@
             messagingSenderId: "224921796940",
             appId: "1:224921796940:web:c03185504d102f58e8cfe9"
         };
-        
-        // Usamos el projectId como ID seguro para la ruta de la colección
         const appId = firebaseConfig.projectId; 
 
         let db = null;
@@ -45,6 +41,8 @@
             save: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>`,
             update: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>`,
             search: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>`,
+            refresh: `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>`,
+            close: `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>`
         };
 
         if (firebaseConfig.apiKey) {
@@ -65,8 +63,6 @@
                     listenForPrompts();
                 } else {
                     try {
-                        // Importante: Para que esto funcione en tu dominio final (ej. tu-web.github.io),
-                        // asegúrate de agregar ese dominio en Firebase Console > Authentication > Settings > Authorized Domains.
                         await signInAnonymously(auth);
                     } catch (error) {
                         console.error("Auth Error:", error);
@@ -90,7 +86,7 @@
                 });
             }
 
-            // Gestión visual del botón (sin cambiar texto, solo estado)
+            // Gestión visual del botón
             function setButtonState(state) {
                 const btn = document.getElementById('save-button');
                 const btnText = document.getElementById('save-btn-text');
@@ -112,6 +108,18 @@
                     btn.disabled = false;
                     btn.classList.add(isEdit ? 'bg-indigo-600' : 'bg-blue-600', isEdit ? 'hover:bg-indigo-700' : 'hover:bg-blue-700');
                 }
+            }
+            
+            // Función Resetear Formulario
+            // Se expone globalmente para poder llamarla desde el botón "Limpiar"
+            window.resetForm = function() {
+                // Usamos el método nativo reset() del formulario HTML
+                document.getElementById('add-prompt-form').reset();
+                editingId = null;
+                setButtonState('idle');
+                
+                // Opcional: Poner foco en el título
+                document.getElementById('prompt-title').focus();
             }
 
             document.getElementById('add-prompt-form').addEventListener('submit', async (e) => {
@@ -142,7 +150,9 @@
                         await addDoc(promptsRef, promptData);
                         showToast('✅ Prompt guardado');
                     }
-                    resetForm(); 
+                    
+                    // CRÍTICO: Limpiar formulario tras éxito
+                    window.resetForm(); 
 
                 } catch (error) {
                     console.error("Error save:", error);
@@ -151,9 +161,6 @@
                 }
             });
 
-            // Helpers globales (asignados a window para acceso desde UI si es necesario, 
-            // aunque preferimos addEventListener para evitar problemas de comillas)
-            
             function editPromptInternal(id) {
                 const prompt = allPrompts.find(p => p.id === id);
                 if (!prompt) return;
@@ -171,9 +178,8 @@
             function deletePromptInternal(id, title) {
                 if (!confirm(`¿Eliminar "${title}"?`)) return;
                 try {
-                    // Fire and forget (onSnapshot actualiza la UI)
                     deleteDoc(doc(promptsRef, id));
-                    if (editingId === id) resetForm(); 
+                    if (editingId === id) window.resetForm(); 
                 } catch (error) {
                     showModal('Error al eliminar.');
                 }
@@ -183,13 +189,12 @@
                 const prompt = allPrompts.find(p => p.id === id);
                 if (!prompt) return;
 
-                // Método moderno de portapapeles si está disponible, fallback a execCommand
                 if (navigator.clipboard && window.isSecureContext) {
                     navigator.clipboard.writeText(prompt.content).then(() => showCopyFeedback(btnElement));
                 } else {
                     const textArea = document.createElement("textarea");
                     textArea.value = prompt.content;
-                    textArea.style.position = "fixed"; // Evitar scroll al pegar
+                    textArea.style.position = "fixed"; 
                     document.body.appendChild(textArea);
                     textArea.focus();
                     textArea.select();
@@ -206,19 +211,11 @@
                 btn.innerHTML = icons.check;
                 btn.classList.add('text-green-600', 'bg-green-50');
                 setTimeout(() => {
-                    btn.innerHTML = icons.copy; // Restaurar icono original (que siempre es copy en esa posición)
+                    btn.innerHTML = icons.copy; 
                     btn.classList.remove('text-green-600', 'bg-green-50');
                 }, 1500);
             }
 
-            function resetForm() {
-                document.getElementById('prompt-title').value = '';
-                document.getElementById('prompt-content').value = '';
-                editingId = null;
-                setButtonState('idle');
-            }
-
-            // Renderizado seguro (sin onclick inline para evitar roturas por comillas)
             window.renderPrompts = function(promptsToDisplay) {
                 const list = document.getElementById('prompts-list');
                 list.innerHTML = ''; 
@@ -232,39 +229,31 @@
                     const card = document.createElement('div');
                     card.className = 'group bg-white border border-gray-100 hover:border-blue-200 p-5 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 flex flex-col h-full';
                     
-                    // Parte estática HTML
                     card.innerHTML = `
                         <div class="flex-grow">
-                            <h3 class="font-bold text-gray-800 mb-2 truncate"></h3> <!-- Título se inyecta via textContent -->
-                            <p class="text-gray-500 text-sm whitespace-pre-wrap line-clamp-4"></p> <!-- Contenido se inyecta via textContent -->
+                            <h3 class="font-bold text-gray-800 mb-2 truncate"></h3> 
+                            <p class="text-gray-500 text-sm whitespace-pre-wrap line-clamp-4"></p> 
                         </div>
-                        <div class="flex justify-end items-center space-x-2 mt-4 pt-4 border-t border-gray-50 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity actions-container">
-                            <!-- Los botones se agregan programáticamente abajo -->
-                        </div>
+                        <div class="flex justify-end items-center space-x-2 mt-4 pt-4 border-t border-gray-50 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity actions-container"></div>
                     `;
 
-                    // Inyección segura de texto (evita XSS y errores de comillas)
                     card.querySelector('h3').textContent = prompt.title;
                     card.querySelector('p').textContent = prompt.content;
 
-                    // Crear botones con Event Listeners reales
                     const actionsContainer = card.querySelector('.actions-container');
 
-                    // Botón Editar
                     const btnEdit = document.createElement('button');
                     btnEdit.className = 'p-2 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors';
                     btnEdit.title = 'Editar';
                     btnEdit.innerHTML = icons.edit;
                     btnEdit.onclick = () => editPromptInternal(prompt.id);
                     
-                    // Botón Copiar
                     const btnCopy = document.createElement('button');
                     btnCopy.className = 'p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors';
                     btnCopy.title = 'Copiar';
                     btnCopy.innerHTML = icons.copy;
                     btnCopy.onclick = function() { copyPromptInternal(prompt.id, this); };
 
-                    // Botón Eliminar
                     const btnDelete = document.createElement('button');
                     btnDelete.className = 'p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors';
                     btnDelete.title = 'Eliminar';
@@ -335,9 +324,17 @@
             <!-- Columna Izquierda: Formulario (Sticky en Desktop) -->
             <div class="lg:col-span-1">
                 <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 sticky top-8">
-                    <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-                        Nuevo Prompt
-                    </h2>
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                            Nuevo Prompt
+                        </h2>
+                        <!-- Botón Limpiar/Cancelar Agregado -->
+                        <button onclick="resetForm()" class="text-gray-400 hover:text-red-500 text-xs flex items-center gap-1 transition-colors" title="Limpiar formulario">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                            Limpiar
+                        </button>
+                    </div>
+                    
                     <form id="add-prompt-form" class="space-y-4">
                         <div>
                             <label class="block text-xs font-medium text-gray-400 mb-1">Título</label>
