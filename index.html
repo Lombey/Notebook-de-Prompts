@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notebook de Prompts | 📓 Tracker</title>
+    <!-- Carga de Tailwind CSS para estilos rápidos y responsive -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Carga de Firebase SDKs para HTML -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, query, orderBy, onSnapshot, addDoc, doc, deleteDoc, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Establecer nivel de log para depuración de Firestore
+        setLogLevel('debug');
+
+        // --- 1. CONFIGURACIÓN E INICIALIZACIÓN DE FIREBASE ---
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        let db = null;
+        let auth = null;
+        let userId = null;
+        let promptsRef = null;
+        let allPrompts = []; // Almacén local de prompts
+
+        if (Object.keys(firebaseConfig).length > 0) {
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            // La colección se almacenará en /artifacts/{appId}/users/{userId}/prompts
+            
+            // --- 2. AUTENTICACIÓN Y CONFIGURACIÓN INICIAL ---
+            onAuthStateChanged(auth, async (user) => {
+                const loadingState = document.getElementById('loading-state');
+                
+                if (user) {
+                    userId = user.uid;
+                    document.getElementById('user-id-display').textContent = userId;
+                    promptsRef = collection(db, 'artifacts', appId, 'users', userId, 'prompts');
+                    loadingState.textContent = 'Cargando tus prompts...';
+                    
+                    // Iniciar el listener de datos una vez autenticado
+                    listenForPrompts();
+                } else {
+                    // Si no está autenticado, intentar la autenticación con el token proporcionado o anónima
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined') {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (error) {
+                        console.error("Error en la autenticación:", error);
+                        loadingState.textContent = "⚠️ Error de autenticación. No se podrán guardar los datos.";
+                    }
+                }
+            });
+
+            // --- 3. FUNCIONES DE FIREBASE (CRUD) ---
+
+            /**
+             * Escucha cambios en tiempo real en la colección 'prompts'.
+             */
+            function listenForPrompts() {
+                if (!promptsRef) return;
+
+                const q = query(promptsRef, orderBy("createdAt", "desc"));
+
+                onSnapshot(q, (snapshot) => {
+                    document.getElementById('loading-state').classList.add('hidden');
+                    allPrompts = []; 
+                    
+                    snapshot.forEach(doc => {
+                        allPrompts.push({ id: doc.id, ...doc.data() });
+                    });
+
+                    // Renderizar los prompts obtenidos o filtrados (si hay búsqueda)
+                    filterPrompts(); 
+                }, (error) => {
+                    console.error("Error al escuchar cambios en Firestore: ", error);
+                    document.getElementById('loading-state').textContent = "⚠️ Error al cargar los prompts.";
+                });
+            }
+
+            /**
+             * Agrega un nuevo prompt a Firestore.
+             */
+            document.getElementById('add-prompt-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                if (!promptsRef) return;
+
+                const titleInput = document.getElementById('prompt-title');
+                const contentInput = document.getElementById('prompt-content');
+
+                const newPrompt = {
+                    title: titleInput.value.trim(),
+                    content: contentInput.value.trim(),
+                    createdAt: serverTimestamp()
+                };
+
+                try {
+                    // Muestra feedback visual mientras se guarda
+                    document.getElementById('save-button').textContent = 'Guardando...';
+                    await addDoc(promptsRef, newPrompt);
+                    
+                    titleInput.value = '';
+                    contentInput.value = '';
+                    titleInput.focus();
+                    
+                    document.getElementById('save-button').textContent = '💾 Guardar Prompt';
+
+                    // Feedback rápido: animación o mensaje temporal (mejor que alert)
+                    const feedback = document.getElementById('feedback-message');
+                    feedback.textContent = '✅ ¡Prompt guardado!';
+                    feedback.classList.remove('hidden');
+                    setTimeout(() => feedback.classList.add('hidden'), 2000);
+
+                } catch (error) {
+                    console.error("Error al agregar documento: ", error);
+                    alert('Error al guardar el prompt. Revisa la consola.');
+                }
+            });
+
+            /**
+             * Elimina un prompt de Firestore.
+             */
+            window.deletePrompt = async function(id, title) {
+                // Confirmación con modal simple (mejor UX que alert)
+                if (!confirm(`¿Estás seguro que quieres eliminar el prompt: "${title}"?`)) {
+                    return;
+                }
+
+                try {
+                    const docRef = doc(promptsRef, id);
+                    await deleteDoc(docRef);
+                    // onSnapshot se encarga de actualizar la UI
+                } catch (error) {
+                    console.error("Error al eliminar documento: ", error);
+                    alert('Error al eliminar el prompt. Revisa la consola.');
+                }
+            }
+
+            /**
+             * Copia el contenido del prompt al portapapeles.
+             */
+            window.copyPrompt = function(id) {
+                const prompt = allPrompts.find(p => p.id === id);
+                if (!prompt) return;
+
+                // Usamos execCommand('copy') ya que navigator.clipboard.writeText puede fallar en iframes
+                const textArea = document.createElement("textarea");
+                textArea.value = prompt.content;
+                document.body.appendChild(textArea);
+                textArea.select();
+                
+                try {
+                    const successful = document.execCommand('copy');
+                    const button = document.querySelector(`.copy-btn[data-id="${id}"]`);
+                    
+                    if (successful) {
+                        button.textContent = '✅ Copiado';
+                        setTimeout(() => {
+                            button.textContent = '📋 Copiar';
+                        }, 1500);
+                    } else {
+                         button.textContent = '❌ Falló';
+                    }
+                } catch (err) {
+                    console.error('Error al intentar copiar:', err);
+                }
+                
+                document.body.removeChild(textArea);
+            }
+
+            /**
+             * Renderiza los prompts en la interfaz de usuario.
+             */
+            window.renderPrompts = function(promptsToDisplay) {
+                const promptsListElement = document.getElementById('prompts-list');
+                promptsListElement.innerHTML = ''; 
+
+                if (promptsToDisplay.length === 0) {
+                     promptsListElement.innerHTML = '<div class="col-span-full text-center p-10 text-gray-500 bg-gray-50 rounded-lg">🎉 ¡Parece que no tienes prompts aún o no hay coincidencias! Agrega el primero.</div>';
+                     return;
+                }
+
+                promptsToDisplay.forEach(prompt => {
+                    const card = document.createElement('div');
+                    card.className = 'bg-white border border-gray-200 p-4 rounded-xl shadow-md flex flex-col justify-between transition duration-200 hover:shadow-lg';
+                    card.setAttribute('data-id', prompt.id); 
+
+                    card.innerHTML = `
+                        <h3 class="text-lg font-semibold text-blue-700 mb-2">${prompt.title}</h3>
+                        <p class="text-gray-600 text-sm whitespace-pre-wrap flex-grow mb-4">${prompt.content}</p>
+                        <div class="flex justify-end space-x-2">
+                            <button class="copy-btn bg-green-500 hover:bg-green-600 text-white text-xs font-bold py-1 px-3 rounded-lg transition duration-150" 
+                                onclick="copyPrompt('${prompt.id}')" data-id="${prompt.id}">
+                                📋 Copiar
+                            </button>
+                            <button class="bg-red-500 hover:bg-red-600 text-white text-xs font-bold py-1 px-3 rounded-lg transition duration-150" 
+                                onclick="deletePrompt('${prompt.id}', '${prompt.title.replace(/'/g, "\\'")}')">
+                                🗑️ Eliminar
+                            </button>
+                        </div>
+                    `;
+
+                    promptsListElement.appendChild(card);
+                });
+            }
+
+
+            /**
+             * Realiza la búsqueda rápida (filtrado local).
+             */
+            window.filterPrompts = function() {
+                const searchTerm = document.getElementById('search-input').value.toLowerCase().trim();
+                
+                if (!searchTerm) {
+                    renderPrompts(allPrompts);
+                    return;
+                }
+
+                // Filtrado por Título o Contenido
+                const filtered = allPrompts.filter(prompt => 
+                    prompt.title.toLowerCase().includes(searchTerm) ||
+                    prompt.content.toLowerCase().includes(searchTerm)
+                );
+
+                renderPrompts(filtered);
+            }
+
+        } else {
+            document.getElementById('loading-state').textContent = "⚠️ Error: Configuración de Firebase no disponible.";
+        }
+    </script>
+    <style>
+        /* Estilo personalizado para el textarea para una mejor visibilidad */
+        textarea {
+            min-height: 100px;
+        }
+        /* Configuración de fuente Inter para un look moderno */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Fix para ocupar todo el ancho en el grid */
+        .col-span-full {
+            grid-column: 1 / -1;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen p-4 sm:p-8">
+
+    <div class="max-w-4xl mx-auto">
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl sm:text-4xl font-extrabold text-blue-800">
+                📓 Notebook de Prompts
+            </h1>
+            <p class="text-sm text-gray-500 mt-1">
+                <span class="font-medium">ID de Usuario (Privado):</span> <span id="user-id-display" class="break-all">Cargando...</span>
+            </p>
+        </header>
+
+        <!-- Sección de Agregar Prompt -->
+        <div class="bg-white p-6 rounded-xl shadow-lg mb-8">
+            <h2 class="text-xl font-bold text-gray-700 mb-4">🚀 Guardar Nuevo Prompt</h2>
+            <form id="add-prompt-form" class="space-y-4">
+                <input type="text" id="prompt-title" placeholder="Título corto y descriptivo (ej: Reporte QMS)" required
+                       class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                
+                <textarea id="prompt-content" placeholder="Escribe aquí el prompt completo y detallado para el modelo (UX de la IA)..." required
+                          class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"></textarea>
+                
+                <div class="flex justify-between items-center">
+                    <button id="save-button" type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-150">
+                        💾 Guardar Prompt
+                    </button>
+                    <span id="feedback-message" class="text-green-600 font-semibold hidden"></span>
+                </div>
+            </form>
+        </div>
+
+        <!-- Sección de Búsqueda y Lista -->
+        <div class="bg-white p-6 rounded-xl shadow-lg">
+            <h2 class="text-xl font-bold text-gray-700 mb-4">🔎 Mis Prompts Guardados</h2>
+            
+            <!-- Input de Búsqueda -->
+            <input type="text" id="search-input" placeholder="Buscar por palabra clave en título o contenido (ej: física, entrenamiento, reporte)" oninput="filterPrompts()"
+                   class="w-full p-3 mb-6 border border-gray-300 rounded-lg focus:ring-yellow-500 focus:border-yellow-500">
+            
+            <!-- Mensaje de Carga / Error -->
+            <div id="loading-state" class="text-center p-8 text-blue-500 font-semibold">
+                Iniciando Firebase y autenticando usuario...
+            </div>
+
+            <!-- Contenedor de la Lista de Prompts -->
+            <div id="prompts-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Las tarjetas de prompts se renderizarán aquí -->
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
