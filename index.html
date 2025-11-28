@@ -15,7 +15,7 @@
 
         setLogLevel('silent'); 
 
-        const APP_VERSION = "1.1.0"; // Actualizamos versión por la nueva feature de Login
+        const APP_VERSION = "1.2.0"; // Versión con Vista de Detalle
 
         // --- 1. CONFIGURACIÓN FIREBASE ---
         const firebaseConfig = {
@@ -34,7 +34,7 @@
         let promptsRef = null;
         let allPrompts = []; 
         let editingId = null; 
-        let unsubscribe = null; // Para detener la escucha al salir
+        let unsubscribe = null; 
 
         // --- ICONOS SVG ---
         const icons = {
@@ -46,13 +46,17 @@
             update: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>`,
             search: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>`,
             google: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.84z" fill="#FBBC05"/><path d="M12 4.66c1.61 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.09 14.97 0 12 0 7.7 0 3.99 2.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>`,
-            logout: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>`
+            expand: `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>`
         };
 
-        // Inyectar versión en el DOM al cargar
+        // Inyectar versión
         document.addEventListener('DOMContentLoaded', () => {
             const versionElement = document.getElementById('app-version-display');
             if(versionElement) versionElement.textContent = `v${APP_VERSION}`;
+            
+            // Inyectar version en el login también
+            const loginVersion = document.getElementById('login-version-display');
+            if(loginVersion) loginVersion.textContent = `v${APP_VERSION}`;
         });
 
         if (firebaseConfig.apiKey) {
@@ -69,34 +73,24 @@
 
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
-                    // USUARIO LOGUEADO
                     userId = user.uid;
-                    
-                    // Actualizar UI con datos del usuario
                     userNameDisplay.textContent = user.displayName || user.email || 'Usuario';
                     if (user.photoURL) {
                         userAvatar.src = user.photoURL;
                         userAvatar.classList.remove('hidden');
                     }
-
-                    // Cambiar pantallas
                     loginScreen.classList.add('hidden');
                     appScreen.classList.remove('hidden');
-
                     promptsRef = collection(db, 'artifacts', appId, 'users', userId, 'prompts'); 
                     listenForPrompts();
                 } else {
-                    // USUARIO NO LOGUEADO
                     userId = null;
-                    if(unsubscribe) unsubscribe(); // Dejar de escuchar cambios
-                    
-                    // Cambiar pantallas
+                    if(unsubscribe) unsubscribe(); 
                     loginScreen.classList.remove('hidden');
                     appScreen.classList.add('hidden');
                 }
             });
 
-            // Función Login Google
             window.loginWithGoogle = async function() {
                 const btn = document.getElementById('google-login-btn');
                 const originalText = btn.innerHTML;
@@ -107,43 +101,33 @@
                 } catch (error) {
                     console.error("Login Error:", error);
                     let msg = "Error al iniciar sesión.";
-                    if (error.code === 'auth/unauthorized-domain') {
-                        msg = "❌ Dominio no autorizado en Firebase. Agrega este dominio en la consola.";
-                    }
+                    if (error.code === 'auth/unauthorized-domain') msg = "❌ Dominio no autorizado en Firebase.";
                     showModal(msg);
                     btn.innerHTML = originalText;
                     btn.disabled = false;
                 }
             }
 
-            // Función Logout
-            window.logout = function() {
-                signOut(auth);
-            }
+            window.logout = function() { signOut(auth); }
 
             // --- 3. LÓGICA DE NEGOCIO ---
 
             function listenForPrompts() {
                 if (!promptsRef) return;
                 const q = query(promptsRef, orderBy("createdAt", "desc"));
-                
-                // Mostrar loading en la lista mientras carga
                 const list = document.getElementById('prompts-list');
                 list.innerHTML = `<div class="col-span-full text-center p-12 animate-pulse text-gray-400">Cargando tus prompts...</div>`;
 
                 unsubscribe = onSnapshot(q, (snapshot) => {
                     allPrompts = []; 
-                    snapshot.forEach(doc => {
-                        allPrompts.push({ id: doc.id, ...doc.data() });
-                    });
+                    snapshot.forEach(doc => { allPrompts.push({ id: doc.id, ...doc.data() }); });
                     filterPrompts(); 
                 }, (error) => {
                      console.error("Snapshot Error:", error);
-                     list.innerHTML = `<div class="col-span-full text-center p-12 text-red-400">Error cargando datos. Verifica tu conexión.</div>`;
+                     list.innerHTML = `<div class="col-span-full text-center p-12 text-red-400">Error cargando datos.</div>`;
                 });
             }
 
-            // Gestión visual del botón
             function setButtonState(state) {
                 const btn = document.getElementById('save-button');
                 const btnText = document.getElementById('save-btn-text');
@@ -193,34 +177,53 @@
 
                 try {
                     setButtonState('loading');
-                    
                     if (editingId) {
-                        const docRef = doc(promptsRef, editingId);
-                        await updateDoc(docRef, promptData);
+                        await updateDoc(doc(promptsRef, editingId), promptData);
                         showToast(`✅ Prompt actualizado a v${promptData.version}`);
                     } else {
                         await addDoc(promptsRef, promptData);
                         showToast('✅ Prompt guardado (v1)');
                     }
                     window.resetForm(); 
-
                 } catch (error) {
                     console.error("Error save:", error);
-                    showModal('Error al guardar. Intenta nuevamente.');
+                    showModal('Error al guardar.');
                     setButtonState('idle');
                 }
             });
 
-            window.editPrompt = function(id) {
+            // --- VISTA DE DETALLE (MODAL) ---
+            window.viewPrompt = function(id) {
                 const prompt = allPrompts.find(p => p.id === id);
                 if (!prompt) return;
 
+                document.getElementById('view-modal-title').textContent = prompt.title;
+                document.getElementById('view-modal-content').textContent = prompt.content;
+                document.getElementById('view-modal-version').textContent = prompt.version ? `v${prompt.version}` : 'v1';
+                
+                // Configurar botón de copiar del modal
+                const copyBtn = document.getElementById('view-modal-copy-btn');
+                // Clonar el botón para eliminar listeners anteriores
+                const newCopyBtn = copyBtn.cloneNode(true);
+                copyBtn.parentNode.replaceChild(newCopyBtn, copyBtn);
+                
+                newCopyBtn.onclick = function() { window.copyPrompt(id, this); };
+
+                // Mostrar modal
+                document.getElementById('view-modal').classList.remove('hidden');
+            }
+
+            window.closeViewModal = function() {
+                document.getElementById('view-modal').classList.add('hidden');
+            }
+
+            window.editPrompt = function(id) {
+                const prompt = allPrompts.find(p => p.id === id);
+                if (!prompt) return;
                 document.getElementById('prompt-title').value = prompt.title;
                 document.getElementById('prompt-content').value = prompt.content;
-                
                 editingId = id;
                 setButtonState('idle'); 
-
                 document.getElementById('add-prompt-form').scrollIntoView({ behavior: 'smooth' });
                 document.getElementById('prompt-content').focus();
             }
@@ -230,17 +233,25 @@
                 try {
                     deleteDoc(doc(promptsRef, id));
                     if (editingId === id) window.resetForm(); 
-                } catch (error) {
-                    showModal('Error al eliminar.');
-                }
+                } catch (error) { showModal('Error al eliminar.'); }
             }
 
             window.copyPrompt = function(id, btnElement) {
                 const prompt = allPrompts.find(p => p.id === id);
                 if (!prompt) return;
 
+                const feedback = (btn) => {
+                    const originalHTML = btn.innerHTML;
+                    btn.innerHTML = `${icons.check} <span class="ml-1">Copiado</span>`;
+                    btn.classList.add('text-green-600', 'bg-green-50', 'border-green-200');
+                    setTimeout(() => {
+                        btn.innerHTML = originalHTML;
+                        btn.classList.remove('text-green-600', 'bg-green-50', 'border-green-200');
+                    }, 1500);
+                };
+
                 if (navigator.clipboard && window.isSecureContext) {
-                    navigator.clipboard.writeText(prompt.content).then(() => showCopyFeedback(btnElement));
+                    navigator.clipboard.writeText(prompt.content).then(() => feedback(btnElement));
                 } else {
                     const textArea = document.createElement("textarea");
                     textArea.value = prompt.content;
@@ -248,22 +259,9 @@
                     document.body.appendChild(textArea);
                     textArea.focus();
                     textArea.select();
-                    try {
-                        document.execCommand('copy');
-                        showCopyFeedback(btnElement);
-                    } catch (err) {}
+                    try { document.execCommand('copy'); feedback(btnElement); } catch (err) {}
                     document.body.removeChild(textArea);
                 }
-            }
-
-            function showCopyFeedback(btn) {
-                const originalContent = btn.innerHTML;
-                btn.innerHTML = icons.check;
-                btn.classList.add('text-green-600', 'bg-green-50');
-                setTimeout(() => {
-                    btn.innerHTML = icons.copy; 
-                    btn.classList.remove('text-green-600', 'bg-green-50');
-                }, 1500);
             }
 
             window.renderPrompts = function(promptsToDisplay) {
@@ -277,19 +275,28 @@
 
                 promptsToDisplay.forEach(prompt => {
                     const card = document.createElement('div');
-                    card.className = 'group bg-white border border-gray-100 hover:border-blue-200 p-5 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 flex flex-col h-full';
+                    card.className = 'group bg-white border border-gray-100 hover:border-blue-300 hover:shadow-md p-5 rounded-xl transition-all duration-200 flex flex-col h-full relative';
                     
                     const version = prompt.version ? `v${prompt.version}` : 'v1';
 
                     card.innerHTML = `
-                        <div class="flex-grow">
+                        <!-- Área Clickeable para Ver Detalle -->
+                        <div class="flex-grow cursor-pointer" onclick="viewPrompt('${prompt.id}')" title="Clic para ver detalle completo">
                             <div class="flex items-center justify-between mb-2">
-                                <h3 class="font-bold text-gray-800 truncate pr-2"></h3>
+                                <h3 class="font-bold text-gray-800 truncate pr-2 hover:text-blue-600 transition-colors"></h3>
                                 <span class="version-badge text-xs font-mono text-gray-400 bg-gray-50 px-2 py-1 rounded-md border border-gray-100 shrink-0 select-none">${version}</span>
                             </div>
-                            <p class="text-gray-500 text-sm whitespace-pre-wrap line-clamp-4"></p> 
+                            <p class="text-gray-500 text-sm whitespace-pre-wrap line-clamp-4 relative">
+                                <!-- Contenido inyectado -->
+                            </p> 
+                            <!-- Icono de expandir sutil al hacer hover -->
+                            <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-10 bg-blue-50 rounded-xl pointer-events-none transition-opacity">
+                                ${icons.expand}
+                            </div>
                         </div>
-                        <div class="flex justify-end items-center space-x-2 mt-4 pt-4 border-t border-gray-50 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity actions-container"></div>
+
+                        <!-- Botones de Acción -->
+                        <div class="flex justify-end items-center space-x-2 mt-4 pt-4 border-t border-gray-50 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity actions-container z-10"></div>
                     `;
 
                     card.querySelector('h3').textContent = prompt.title;
@@ -297,27 +304,19 @@
 
                     const actionsContainer = card.querySelector('.actions-container');
 
-                    const btnEdit = document.createElement('button');
-                    btnEdit.className = 'p-2 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors';
-                    btnEdit.title = 'Editar';
-                    btnEdit.innerHTML = icons.edit;
-                    btnEdit.onclick = () => window.editPrompt(prompt.id);
-                    
-                    const btnCopy = document.createElement('button');
-                    btnCopy.className = 'p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors';
-                    btnCopy.title = 'Copiar';
-                    btnCopy.innerHTML = icons.copy;
-                    btnCopy.onclick = function() { window.copyPrompt(prompt.id, this); };
+                    // Crear botones (Edit, Copy, Delete)
+                    const createBtn = (title, icon, onClick, cls) => {
+                        const btn = document.createElement('button');
+                        btn.className = `p-2 rounded-lg transition-colors ${cls}`;
+                        btn.title = title;
+                        btn.innerHTML = icon;
+                        btn.onclick = (e) => { e.stopPropagation(); onClick(); }; // Importante: stopPropagation para no abrir el modal
+                        return btn;
+                    };
 
-                    const btnDelete = document.createElement('button');
-                    btnDelete.className = 'p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors';
-                    btnDelete.title = 'Eliminar';
-                    btnDelete.innerHTML = icons.trash;
-                    btnDelete.onclick = () => window.deletePrompt(prompt.id, prompt.title);
-
-                    actionsContainer.appendChild(btnEdit);
-                    actionsContainer.appendChild(btnCopy);
-                    actionsContainer.appendChild(btnDelete);
+                    actionsContainer.appendChild(createBtn('Editar', icons.edit, () => window.editPrompt(prompt.id), 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'));
+                    actionsContainer.appendChild(createBtn('Copiar', icons.copy, function() { window.copyPrompt(prompt.id, this); }, 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'));
+                    actionsContainer.appendChild(createBtn('Eliminar', icons.trash, () => window.deletePrompt(prompt.id, prompt.title), 'text-gray-400 hover:text-red-600 hover:bg-red-50'));
 
                     list.appendChild(card);
                 });
@@ -326,9 +325,7 @@
             window.filterPrompts = function() {
                 const term = document.getElementById('search-input').value.toLowerCase().trim();
                 if (!term) { window.renderPrompts(allPrompts); return; }
-                const filtered = allPrompts.filter(p => 
-                    p.title.toLowerCase().includes(term) || p.content.toLowerCase().includes(term)
-                );
+                const filtered = allPrompts.filter(p => p.title.toLowerCase().includes(term) || p.content.toLowerCase().includes(term));
                 window.renderPrompts(filtered);
             }
         }
@@ -346,18 +343,24 @@
         window.closeModal = () => document.getElementById('custom-modal').classList.add('hidden');
     </script>
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f9fafb; }
-        .line-clamp-4 {
-            display: -webkit-box;
-            -webkit-line-clamp: 4;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
+        body { font-family: 'Inter', sans-serif; }
+        .line-clamp-4 { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+        /* Scrollbar personalizada para el modal */
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+        
+        @keyframes fade-in-up {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
+        .animate-fade-in-up { animation: fade-in-up 0.2s ease-out forwards; }
     </style>
 </head>
 <body class="text-gray-700 bg-gray-50 min-h-screen">
 
-    <!-- PANTALLA DE LOGIN (Se muestra si no hay usuario) -->
+    <!-- PANTALLA DE LOGIN -->
     <div id="login-screen" class="hidden min-h-screen flex flex-col items-center justify-center p-4">
         <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md text-center border border-gray-100">
             <div class="mb-6 flex justify-center text-blue-600">
@@ -365,31 +368,25 @@
             </div>
             <h1 class="text-3xl font-bold text-gray-900 mb-2">Notebook de Prompts</h1>
             <p class="text-gray-500 mb-8">Gestiona y organiza tus prompts de forma segura.</p>
-            
-            <button id="google-login-btn" onclick="loginWithGoogle()" 
-                class="w-full flex items-center justify-center gap-3 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-3 px-4 rounded-xl transition-all duration-200 shadow-sm hover:shadow-md">
+            <button id="google-login-btn" onclick="loginWithGoogle()" class="w-full flex items-center justify-center gap-3 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-3 px-4 rounded-xl transition-all duration-200 shadow-sm hover:shadow-md">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.84z" fill="#FBBC05"/><path d="M12 4.66c1.61 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.09 14.97 0 12 0 7.7 0 3.99 2.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
                 Continuar con Google
             </button>
-            <p class="text-xs text-gray-400 mt-6">Versión <span id="login-version-display">v1.1.0</span></p>
+            <p class="text-xs text-gray-400 mt-6">Versión <span id="login-version-display"></span></p>
         </div>
     </div>
 
-    <!-- PANTALLA PRINCIPAL DE LA APP (Se muestra al loguear) -->
+    <!-- PANTALLA PRINCIPAL -->
     <div id="app-screen" class="max-w-4xl mx-auto p-4 sm:p-8 hidden">
-        <!-- Header Minimalista -->
         <header class="flex flex-col md:flex-row justify-between items-center mb-10 pb-6 border-b border-gray-200">
             <div>
                 <h1 class="text-2xl font-bold text-gray-900 tracking-tight flex items-center gap-2">
-                    <span class="text-blue-600"><!-- Icono Rocket -->
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                    </span>
+                    <span class="text-blue-600"><svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg></span>
                     Notebook de Prompts
-                    <span id="app-version-display" class="ml-2 text-xs font-mono font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200">v1.1.0</span>
+                    <span id="app-version-display" class="ml-2 text-xs font-mono font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200"></span>
                 </h1>
                 <p class="text-sm text-gray-400 mt-1 pl-10">Gestiona tu conocimiento</p>
             </div>
-            
             <div class="flex items-center gap-3 mt-4 md:mt-0">
                 <div class="text-right">
                     <p id="user-name-display" class="text-sm font-medium text-gray-700">Usuario</p>
@@ -400,82 +397,95 @@
         </header>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            
-            <!-- Columna Izquierda: Formulario (Sticky en Desktop) -->
+            <!-- Formulario -->
             <div class="lg:col-span-1">
                 <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 sticky top-8">
                     <div class="flex justify-between items-center mb-4">
-                        <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                            Nuevo Prompt
-                        </h2>
-                        <!-- Botón Limpiar/Cancelar -->
+                        <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">Nuevo Prompt</h2>
                         <button onclick="resetForm()" class="text-gray-400 hover:text-red-500 text-xs flex items-center gap-1 transition-colors" title="Limpiar formulario">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                            Limpiar
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg> Limpiar
                         </button>
                     </div>
-                    
                     <form id="add-prompt-form" class="space-y-4">
                         <div>
                             <label class="block text-xs font-medium text-gray-400 mb-1">Título</label>
-                            <input type="text" id="prompt-title" placeholder="Ej: Física Cuántica" required
-                                class="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all">
+                            <input type="text" id="prompt-title" placeholder="Ej: Física Cuántica" required class="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all">
                         </div>
-                        
                         <div>
                             <label class="block text-xs font-medium text-gray-400 mb-1">Contenido</label>
-                            <textarea id="prompt-content" placeholder="Escribe el prompt..." required
-                                class="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm h-40 resize-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all"></textarea>
+                            <textarea id="prompt-content" placeholder="Escribe el prompt..." required class="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm h-40 resize-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all"></textarea>
                         </div>
-                        
-                        <button id="save-button" type="submit" 
-                            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-center gap-2">
-                            <span id="save-btn-icon">
-                                <!-- Icono Save -->
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
-                            </span>
+                        <button id="save-button" type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-center gap-2">
+                            <span id="save-btn-icon"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg></span>
                             <span id="save-btn-text">Guardar Prompt</span>
                         </button>
                     </form>
                 </div>
             </div>
 
-            <!-- Columna Derecha: Lista y Buscador -->
+            <!-- Lista y Buscador -->
             <div class="lg:col-span-2 space-y-6">
-                
-                <!-- Buscador con Icono Integrado -->
                 <div class="relative group">
                     <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 group-focus-within:text-blue-500 transition-colors">
-                        <!-- Icono Lupa -->
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                     </div>
-                    <input type="text" id="search-input" placeholder="Buscar..." oninput="filterPrompts()"
-                        class="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all shadow-sm">
+                    <input type="text" id="search-input" placeholder="Buscar..." oninput="filterPrompts()" class="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all shadow-sm">
                 </div>
-
-                <!-- Lista de Cards -->
-                <div id="prompts-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <!-- JS inyectará las cards aquí -->
-                </div>
+                <div id="prompts-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
             </div>
         </div>
     </div>
     
-    <!-- Toast Notification (Feedback sutil) -->
-    <div id="toast" class="fixed bottom-6 right-6 bg-gray-800 text-white px-6 py-3 rounded-lg shadow-lg text-sm transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none z-50">
-        Acción completada
+    <!-- MODAL DE DETALLE (NUEVO) -->
+    <div id="view-modal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50" onclick="if(event.target === this) closeViewModal()">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col border border-gray-100 animate-fade-in-up">
+            <!-- Header -->
+            <div class="flex justify-between items-start p-6 border-b border-gray-100 bg-gray-50/50 rounded-t-2xl">
+                <div>
+                    <div class="flex items-center gap-3 mb-1">
+                        <span id="view-modal-version" class="text-xs font-mono text-blue-600 bg-blue-50 px-2 py-1 rounded-md border border-blue-100 select-none">v1</span>
+                        <h3 id="view-modal-title" class="text-xl font-bold text-gray-900 leading-tight"></h3>
+                    </div>
+                </div>
+                <button onclick="closeViewModal()" class="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors" title="Cerrar (Esc)">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <!-- Contenido -->
+            <div class="p-6 overflow-y-auto custom-scrollbar">
+                <p id="view-modal-content" class="text-gray-600 whitespace-pre-wrap text-base leading-relaxed selection:bg-blue-100 selection:text-blue-900"></p>
+            </div>
+            <!-- Footer -->
+            <div class="p-4 border-t border-gray-100 flex justify-end bg-gray-50/80 rounded-b-2xl backdrop-blur-sm">
+                <button id="view-modal-copy-btn" class="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-blue-600 bg-white border border-gray-200 hover:border-blue-300 px-4 py-2 rounded-xl transition-all shadow-sm hover:shadow active:scale-95">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg> Copiar Contenido
+                </button>
+            </div>
+        </div>
     </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-6 right-6 bg-gray-800 text-white px-6 py-3 rounded-lg shadow-lg text-sm transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none z-50">Acción completada</div>
 
     <!-- Modal Error -->
     <div id="custom-modal" class="hidden fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
         <div class="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full border border-gray-100">
             <h3 class="text-red-500 font-bold mb-2">Atención</h3>
             <p id="modal-message" class="text-gray-600 text-sm mb-6"></p>
-            <button onclick="closeModal()" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium py-2 rounded-lg text-sm transition-colors">
-                Cerrar
-            </button>
+            <button onclick="closeModal()" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium py-2 rounded-lg text-sm transition-colors">Cerrar</button>
         </div>
     </div>
-
+    
+    <!-- Script para cerrar modal con ESC -->
+    <script>
+        document.addEventListener('keydown', function(event) {
+            if (event.key === "Escape") {
+                const modal = document.getElementById('view-modal');
+                if (!modal.classList.contains('hidden')) {
+                    window.closeViewModal();
+                }
+            }
+        });
+    </script>
 </body>
 </html>
