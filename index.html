@@ -14,6 +14,9 @@
 
         setLogLevel('silent'); // Reducir ruido en consola
 
+        // --- CONSTANTES DE LA APP ---
+        const APP_VERSION = "1.0.0"; // Versión actual de la aplicación
+
         // --- 1. CONFIGURACIÓN FIREBASE ---
         const firebaseConfig = {
             apiKey: "AIzaSyDiv3Dal5XTN9-QE8aplHtPBa5BfhTEg3c",
@@ -44,6 +47,12 @@
             refresh: `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>`,
             close: `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>`
         };
+
+        // Inyectar versión en el DOM al cargar
+        document.addEventListener('DOMContentLoaded', () => {
+            const versionElement = document.getElementById('app-version-display');
+            if(versionElement) versionElement.textContent = `v${APP_VERSION}`;
+        });
 
         if (firebaseConfig.apiKey) {
             const app = initializeApp(firebaseConfig);
@@ -111,14 +120,10 @@
             }
             
             // Función Resetear Formulario
-            // Se expone globalmente para poder llamarla desde el botón "Limpiar"
             window.resetForm = function() {
-                // Usamos el método nativo reset() del formulario HTML
                 document.getElementById('add-prompt-form').reset();
                 editingId = null;
                 setButtonState('idle');
-                
-                // Opcional: Poner foco en el título
                 document.getElementById('prompt-title').focus();
             }
 
@@ -151,7 +156,6 @@
                         showToast('✅ Prompt guardado');
                     }
                     
-                    // CRÍTICO: Limpiar formulario tras éxito
                     window.resetForm(); 
 
                 } catch (error) {
@@ -169,7 +173,7 @@
                 document.getElementById('prompt-content').value = prompt.content;
                 
                 editingId = id;
-                setButtonState('idle'); // Refresca UI al modo editar
+                setButtonState('idle'); 
 
                 document.getElementById('add-prompt-form').scrollIntoView({ behavior: 'smooth' });
                 document.getElementById('prompt-content').focus();
@@ -311,6 +315,7 @@
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                     </span>
                     Notebook de Prompts
+                    <span id="app-version-display" class="ml-2 text-xs font-mono font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200">v1.0.0</span>
                 </h1>
                 <p class="text-sm text-gray-400 mt-1 pl-10">Gestiona tu conocimiento</p>
             </div>
