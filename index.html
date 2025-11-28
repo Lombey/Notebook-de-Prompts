@@ -10,9 +10,10 @@
         import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, query, onSnapshot, addDoc, updateDoc, doc, deleteDoc, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        setLogLevel('silent'); 
+        // Habilitamos logs para ver errores en la consola (F12)
+        setLogLevel('error'); 
 
-        const APP_VERSION = "1.2.1"; // Fix de carga infinita
+        const APP_VERSION = "1.2.2"; // Debug Mode
 
         const firebaseConfig = {
             apiKey: "AIzaSyDiv3Dal5XTN9-QE8aplHtPBa5BfhTEg3c",
@@ -71,11 +72,16 @@
                         userAvatar.src = user.photoURL;
                         userAvatar.classList.remove('hidden');
                     }
+                    console.log("✅ Usuario autenticado:", userId);
+                    
                     loginScreen.classList.add('hidden');
                     appScreen.classList.remove('hidden');
                     promptsRef = collection(db, 'artifacts', appId, 'users', userId, 'prompts'); 
+                    console.log("📂 Ruta de colección:", `artifacts/${appId}/users/${userId}/prompts`);
+                    
                     listenForPrompts();
                 } else {
+                    console.log("ℹ️ Usuario no autenticado");
                     userId = null;
                     if(unsubscribe) unsubscribe(); 
                     loginScreen.classList.remove('hidden');
@@ -102,32 +108,48 @@
 
             window.logout = function() { signOut(auth); }
 
-            // --- LÓGICA DE NEGOCIO CORREGIDA ---
+            // --- LÓGICA DE NEGOCIO ---
             function listenForPrompts() {
                 if (!promptsRef) return;
 
-                // FIX: Quitamos orderBy("createdAt") para evitar problemas de índices o bloqueos en cuentas nuevas.
-                // Ordenaremos en memoria (JavaScript) que es más seguro para este caso.
                 const q = query(promptsRef); 
-                
                 const list = document.getElementById('prompts-list');
                 list.innerHTML = `<div class="col-span-full text-center p-12 animate-pulse text-gray-400">Cargando tus prompts...</div>`;
 
                 unsubscribe = onSnapshot(q, (snapshot) => {
+                    console.log("📥 Snapshot recibido. Docs:", snapshot.size);
                     allPrompts = []; 
-                    snapshot.forEach(doc => { allPrompts.push({ id: doc.id, ...doc.data() }); });
+                    snapshot.forEach(doc => { 
+                        // Protección contra datos corruptos
+                        const data = doc.data();
+                        if (data) {
+                            allPrompts.push({ id: doc.id, ...data }); 
+                        }
+                    });
                     
-                    // Ordenamos aquí en el cliente (más robusto)
+                    // Ordenamiento local
                     allPrompts.sort((a, b) => {
                         const dateA = a.createdAt ? a.createdAt.seconds : 0;
                         const dateB = b.createdAt ? b.createdAt.seconds : 0;
-                        return dateB - dateA; // Descendente (más nuevo primero)
+                        return dateB - dateA;
                     });
 
                     filterPrompts(); 
                 }, (error) => {
-                     console.error("Snapshot Error:", error);
-                     list.innerHTML = `<div class="col-span-full text-center p-12 text-red-400">Error cargando datos.<br><span class="text-xs">Verifica tu conexión a internet</span></div>`;
+                     console.error("🔥 Error crítico leyendo Firestore:", error);
+                     let errorMsg = "Error cargando datos.";
+                     
+                     if (error.code === 'permission-denied') {
+                         errorMsg = `🚫 Acceso Denegado.<br><br>
+                         <span class='text-sm text-gray-500'>Por favor ve a tu Consola Firebase > Firestore Database > Reglas y cambia 'allow read, write: if false;' por 'allow read, write: if request.auth != null;'</span>`;
+                     } else if (error.code === 'unavailable') {
+                         errorMsg = "📡 Sin conexión a internet.";
+                     }
+
+                     list.innerHTML = `<div class="col-span-full text-center p-8 bg-red-50 border border-red-200 rounded-xl text-red-600">
+                        <p class="font-bold">Error de sincronización</p>
+                        <p class="mt-2">${errorMsg}</p>
+                     </div>`;
                 });
             }
 
@@ -180,17 +202,23 @@
 
                 try {
                     setButtonState('loading');
+                    console.log("💾 Intentando guardar...", promptData);
+                    
                     if (editingId) {
                         await updateDoc(doc(promptsRef, editingId), promptData);
+                        console.log("✅ Actualizado OK");
                         showToast(`✅ Prompt actualizado a v${promptData.version}`);
                     } else {
-                        await addDoc(promptsRef, promptData);
+                        const docRef = await addDoc(promptsRef, promptData);
+                        console.log("✅ Creado OK con ID:", docRef.id);
                         showToast('✅ Prompt guardado (v1)');
                     }
                     window.resetForm(); 
                 } catch (error) {
-                    console.error("Error save:", error);
-                    showModal('Error al guardar.');
+                    console.error("❌ Error al guardar:", error);
+                    let msg = 'Error al guardar.';
+                    if (error.code === 'permission-denied') msg = '🚫 Permiso denegado (Revisa reglas de Firebase).';
+                    showModal(msg);
                     setButtonState('idle');
                 }
             });
@@ -199,8 +227,8 @@
                 const prompt = allPrompts.find(p => p.id === id);
                 if (!prompt) return;
 
-                document.getElementById('view-modal-title').textContent = prompt.title;
-                document.getElementById('view-modal-content').textContent = prompt.content;
+                document.getElementById('view-modal-title').textContent = prompt.title || 'Sin título';
+                document.getElementById('view-modal-content').textContent = prompt.content || '';
                 document.getElementById('view-modal-version').textContent = prompt.version ? `v${prompt.version}` : 'v1';
                 
                 const copyBtn = document.getElementById('view-modal-copy-btn');
@@ -218,8 +246,8 @@
             window.editPrompt = function(id) {
                 const prompt = allPrompts.find(p => p.id === id);
                 if (!prompt) return;
-                document.getElementById('prompt-title').value = prompt.title;
-                document.getElementById('prompt-content').value = prompt.content;
+                document.getElementById('prompt-title').value = prompt.title || '';
+                document.getElementById('prompt-content').value = prompt.content || '';
                 editingId = id;
                 setButtonState('idle'); 
                 document.getElementById('add-prompt-form').scrollIntoView({ behavior: 'smooth' });
@@ -229,7 +257,7 @@
             window.deletePrompt = async function(id, title) {
                 if (!confirm(`¿Eliminar "${title}"?`)) return;
                 try {
-                    deleteDoc(doc(promptsRef, id));
+                    await deleteDoc(doc(promptsRef, id));
                     if (editingId === id) window.resetForm(); 
                 } catch (error) { showModal('Error al eliminar.'); }
             }
@@ -276,6 +304,8 @@
                     card.className = 'group bg-white border border-gray-100 hover:border-blue-300 hover:shadow-md p-5 rounded-xl transition-all duration-200 flex flex-col h-full relative';
                     
                     const version = prompt.version ? `v${prompt.version}` : 'v1';
+                    const safeTitle = prompt.title || 'Sin título';
+                    const safeContent = prompt.content || '';
 
                     card.innerHTML = `
                         <!-- Área Clickeable para Ver Detalle -->
@@ -297,8 +327,8 @@
                         <div class="flex justify-end items-center space-x-2 mt-4 pt-4 border-t border-gray-50 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity actions-container z-10"></div>
                     `;
 
-                    card.querySelector('h3').textContent = prompt.title;
-                    card.querySelector('p').textContent = prompt.content;
+                    card.querySelector('h3').textContent = safeTitle;
+                    card.querySelector('p').textContent = safeContent;
 
                     const actionsContainer = card.querySelector('.actions-container');
 
@@ -313,7 +343,7 @@
 
                     actionsContainer.appendChild(createBtn('Editar', icons.edit, () => window.editPrompt(prompt.id), 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'));
                     actionsContainer.appendChild(createBtn('Copiar', icons.copy, function() { window.copyPrompt(prompt.id, this); }, 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'));
-                    actionsContainer.appendChild(createBtn('Eliminar', icons.trash, () => window.deletePrompt(prompt.id, prompt.title), 'text-gray-400 hover:text-red-600 hover:bg-red-50'));
+                    actionsContainer.appendChild(createBtn('Eliminar', icons.trash, () => window.deletePrompt(prompt.id, safeTitle), 'text-gray-400 hover:text-red-600 hover:bg-red-50'));
 
                     list.appendChild(card);
                 });
@@ -322,13 +352,16 @@
             window.filterPrompts = function() {
                 const term = document.getElementById('search-input').value.toLowerCase().trim();
                 if (!term) { window.renderPrompts(allPrompts); return; }
-                const filtered = allPrompts.filter(p => p.title.toLowerCase().includes(term) || p.content.toLowerCase().includes(term));
+                const filtered = allPrompts.filter(p => 
+                    (p.title && p.title.toLowerCase().includes(term)) || 
+                    (p.content && p.content.toLowerCase().includes(term))
+                );
                 window.renderPrompts(filtered);
             }
         }
         
         function showModal(msg) {
-            document.getElementById('modal-message').textContent = msg;
+            document.getElementById('modal-message').innerHTML = msg; // innerHTML para permitir links/formato
             document.getElementById('custom-modal').classList.remove('hidden');
         }
         function showToast(msg) {
