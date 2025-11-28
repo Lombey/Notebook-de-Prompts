@@ -4,20 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Notebook de Prompts | 📓 Tracker</title>
-    <!-- Carga de Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Carga de Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        // Agregamos GoogleAuthProvider y signInWithPopup
         import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, deleteDoc, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, query, onSnapshot, addDoc, updateDoc, doc, deleteDoc, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         setLogLevel('silent'); 
 
-        const APP_VERSION = "1.2.0"; // Versión con Vista de Detalle
+        const APP_VERSION = "1.2.1"; // Fix de carga infinita
 
-        // --- 1. CONFIGURACIÓN FIREBASE ---
         const firebaseConfig = {
             apiKey: "AIzaSyDiv3Dal5XTN9-QE8aplHtPBa5BfhTEg3c",
             authDomain: "notebook-de-promps.firebaseapp.com",
@@ -36,7 +32,6 @@
         let editingId = null; 
         let unsubscribe = null; 
 
-        // --- ICONOS SVG ---
         const icons = {
             copy: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>`,
             check: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>`,
@@ -49,12 +44,10 @@
             expand: `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>`
         };
 
-        // Inyectar versión
         document.addEventListener('DOMContentLoaded', () => {
             const versionElement = document.getElementById('app-version-display');
             if(versionElement) versionElement.textContent = `v${APP_VERSION}`;
             
-            // Inyectar version en el login también
             const loginVersion = document.getElementById('login-version-display');
             if(loginVersion) loginVersion.textContent = `v${APP_VERSION}`;
         });
@@ -65,7 +58,6 @@
             auth = getAuth(app);
             const googleProvider = new GoogleAuthProvider();
 
-            // --- 2. AUTH ---
             const loginScreen = document.getElementById('login-screen');
             const appScreen = document.getElementById('app-screen');
             const userAvatar = document.getElementById('user-avatar');
@@ -110,21 +102,32 @@
 
             window.logout = function() { signOut(auth); }
 
-            // --- 3. LÓGICA DE NEGOCIO ---
-
+            // --- LÓGICA DE NEGOCIO CORREGIDA ---
             function listenForPrompts() {
                 if (!promptsRef) return;
-                const q = query(promptsRef, orderBy("createdAt", "desc"));
+
+                // FIX: Quitamos orderBy("createdAt") para evitar problemas de índices o bloqueos en cuentas nuevas.
+                // Ordenaremos en memoria (JavaScript) que es más seguro para este caso.
+                const q = query(promptsRef); 
+                
                 const list = document.getElementById('prompts-list');
                 list.innerHTML = `<div class="col-span-full text-center p-12 animate-pulse text-gray-400">Cargando tus prompts...</div>`;
 
                 unsubscribe = onSnapshot(q, (snapshot) => {
                     allPrompts = []; 
                     snapshot.forEach(doc => { allPrompts.push({ id: doc.id, ...doc.data() }); });
+                    
+                    // Ordenamos aquí en el cliente (más robusto)
+                    allPrompts.sort((a, b) => {
+                        const dateA = a.createdAt ? a.createdAt.seconds : 0;
+                        const dateB = b.createdAt ? b.createdAt.seconds : 0;
+                        return dateB - dateA; // Descendente (más nuevo primero)
+                    });
+
                     filterPrompts(); 
                 }, (error) => {
                      console.error("Snapshot Error:", error);
-                     list.innerHTML = `<div class="col-span-full text-center p-12 text-red-400">Error cargando datos.</div>`;
+                     list.innerHTML = `<div class="col-span-full text-center p-12 text-red-400">Error cargando datos.<br><span class="text-xs">Verifica tu conexión a internet</span></div>`;
                 });
             }
 
@@ -172,7 +175,7 @@
                     promptData.version = 1;
                 } else {
                     const originalPrompt = allPrompts.find(p => p.id === editingId);
-                    promptData.version = (originalPrompt.version || 1) + 1;
+                    promptData.version = (originalPrompt && originalPrompt.version ? originalPrompt.version : 1) + 1;
                 }
 
                 try {
@@ -192,7 +195,6 @@
                 }
             });
 
-            // --- VISTA DE DETALLE (MODAL) ---
             window.viewPrompt = function(id) {
                 const prompt = allPrompts.find(p => p.id === id);
                 if (!prompt) return;
@@ -201,15 +203,11 @@
                 document.getElementById('view-modal-content').textContent = prompt.content;
                 document.getElementById('view-modal-version').textContent = prompt.version ? `v${prompt.version}` : 'v1';
                 
-                // Configurar botón de copiar del modal
                 const copyBtn = document.getElementById('view-modal-copy-btn');
-                // Clonar el botón para eliminar listeners anteriores
                 const newCopyBtn = copyBtn.cloneNode(true);
                 copyBtn.parentNode.replaceChild(newCopyBtn, copyBtn);
-                
                 newCopyBtn.onclick = function() { window.copyPrompt(id, this); };
 
-                // Mostrar modal
                 document.getElementById('view-modal').classList.remove('hidden');
             }
 
@@ -304,13 +302,12 @@
 
                     const actionsContainer = card.querySelector('.actions-container');
 
-                    // Crear botones (Edit, Copy, Delete)
                     const createBtn = (title, icon, onClick, cls) => {
                         const btn = document.createElement('button');
                         btn.className = `p-2 rounded-lg transition-colors ${cls}`;
                         btn.title = title;
                         btn.innerHTML = icon;
-                        btn.onclick = (e) => { e.stopPropagation(); onClick(); }; // Importante: stopPropagation para no abrir el modal
+                        btn.onclick = (e) => { e.stopPropagation(); onClick(); }; 
                         return btn;
                     };
 
@@ -345,12 +342,10 @@
     <style>
         body { font-family: 'Inter', sans-serif; }
         .line-clamp-4 { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
-        /* Scrollbar personalizada para el modal */
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
-        
         @keyframes fade-in-up {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
@@ -359,8 +354,6 @@
     </style>
 </head>
 <body class="text-gray-700 bg-gray-50 min-h-screen">
-
-    <!-- PANTALLA DE LOGIN -->
     <div id="login-screen" class="hidden min-h-screen flex flex-col items-center justify-center p-4">
         <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md text-center border border-gray-100">
             <div class="mb-6 flex justify-center text-blue-600">
@@ -375,8 +368,6 @@
             <p class="text-xs text-gray-400 mt-6">Versión <span id="login-version-display"></span></p>
         </div>
     </div>
-
-    <!-- PANTALLA PRINCIPAL -->
     <div id="app-screen" class="max-w-4xl mx-auto p-4 sm:p-8 hidden">
         <header class="flex flex-col md:flex-row justify-between items-center mb-10 pb-6 border-b border-gray-200">
             <div>
@@ -395,9 +386,7 @@
                 <img id="user-avatar" src="" alt="Avatar" class="h-10 w-10 rounded-full border border-gray-200 hidden">
             </div>
         </header>
-
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <!-- Formulario -->
             <div class="lg:col-span-1">
                 <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 sticky top-8">
                     <div class="flex justify-between items-center mb-4">
@@ -422,8 +411,6 @@
                     </form>
                 </div>
             </div>
-
-            <!-- Lista y Buscador -->
             <div class="lg:col-span-2 space-y-6">
                 <div class="relative group">
                     <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 group-focus-within:text-blue-500 transition-colors">
@@ -435,11 +422,8 @@
             </div>
         </div>
     </div>
-    
-    <!-- MODAL DE DETALLE (NUEVO) -->
     <div id="view-modal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50" onclick="if(event.target === this) closeViewModal()">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col border border-gray-100 animate-fade-in-up">
-            <!-- Header -->
             <div class="flex justify-between items-start p-6 border-b border-gray-100 bg-gray-50/50 rounded-t-2xl">
                 <div>
                     <div class="flex items-center gap-3 mb-1">
@@ -451,11 +435,9 @@
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
             </div>
-            <!-- Contenido -->
             <div class="p-6 overflow-y-auto custom-scrollbar">
                 <p id="view-modal-content" class="text-gray-600 whitespace-pre-wrap text-base leading-relaxed selection:bg-blue-100 selection:text-blue-900"></p>
             </div>
-            <!-- Footer -->
             <div class="p-4 border-t border-gray-100 flex justify-end bg-gray-50/80 rounded-b-2xl backdrop-blur-sm">
                 <button id="view-modal-copy-btn" class="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-blue-600 bg-white border border-gray-200 hover:border-blue-300 px-4 py-2 rounded-xl transition-all shadow-sm hover:shadow active:scale-95">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg> Copiar Contenido
@@ -463,11 +445,7 @@
             </div>
         </div>
     </div>
-
-    <!-- Toast Notification -->
     <div id="toast" class="fixed bottom-6 right-6 bg-gray-800 text-white px-6 py-3 rounded-lg shadow-lg text-sm transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none z-50">Acción completada</div>
-
-    <!-- Modal Error -->
     <div id="custom-modal" class="hidden fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
         <div class="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full border border-gray-100">
             <h3 class="text-red-500 font-bold mb-2">Atención</h3>
@@ -475,8 +453,6 @@
             <button onclick="closeModal()" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium py-2 rounded-lg text-sm transition-colors">Cerrar</button>
         </div>
     </div>
-    
-    <!-- Script para cerrar modal con ESC -->
     <script>
         document.addEventListener('keydown', function(event) {
             if (event.key === "Escape") {
